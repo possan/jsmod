@@ -9,24 +9,39 @@ MMP = function(module, samplerate) {
 			107, 101, 95, 90, 85, 80, 75, 71, 67, 63, 60, 56, 53, 50, 47, 45,
 			42, 40, 37, 35, 33, 31, 30, 28 ];
 
-	var mmp_module = {
-		iPosition : 0,
-		iRow : 0,
-		iSubTick : 0,
-		nRowSamples : 0,
-		nSampleRate : 44100,
-		iTempo : 0,
-		iSpeed : 0,
-		nTracks : 0,
-		pTrack : [],
-		nLength : 0,
-		nSongRepeat : 0,
-		pOrder : [],
-		nSamples : 0,
-		pSample : [],
-		nPatterns : 0,
-		pPattern : []
-	};
+	var leftamount = [ 1.0, 0.75, 0.60, 0.50 ];
+	var rightamount = [ 0.50, 0.60, 0.75, 1.0 ];
+
+	var mmp_module = {};
+
+	function mmp_reset() {
+		mmp_module = {
+			iPosition : 0,
+			iRow : 0,
+			iSubTick : 0,
+			nRowSamples : 0,
+			nSampleRate : 44100,
+			iTempo : 0,
+			iSpeed : 0,
+			nTracks : 0,
+			pTrack : [],
+			nLength : 0,
+			nSongRepeat : 0,
+			pOrder : [],
+			nSamples : 0,
+			pSample : [],
+			nPatterns : 0,
+			pPattern : [],
+			songName: '',
+			channelMuted: [false,false,false,false,false,false,false,false],
+			channelVU: [0,0,0,0,0,0,0,0]
+		};
+
+		mmp_module.iPosition = 0;
+		mmp_module.iRow = 0;
+		mmp_module.iSubTick = 1;
+		mmp_module.nRowSamples = 65536;
+	}
 
 	function mmp_calcdeltavalue(noteindex) {
 		return Math.round(82.0 * (1024.0 / ptPeriods[noteindex])
@@ -40,13 +55,10 @@ MMP = function(module, samplerate) {
 		bpm /= speed;
 		var spb = 60.0 / bpm;
 		mmp_module.nRowSamples = mmp_module.nSampleRate * spb;
-		// console.log("speed " + speed + ", tempo " + mmp_module.iTempo
-		// + " => bpm " + bpm + " => seconds per beat " + spb
-		// + ", samples per row " + mmp_module.nRowSamples);
+		//console.log("speed " + speed + ", tempo " + mmp_module.iTempo
+		//	+ " => bpm " + bpm + " => seconds per beat " + spb
+		//	+ ", samples per row " + mmp_module.nRowSamples);
 	}
-
-	var leftamount = [ 1.0, 0.75, 0.60, 0.50 ];
-	var rightamount = [ 0.50, 0.60, 0.75, 1.0 ];
 
 	function SWAP16(x) {
 		return (((x << 8) & 0xFF00) | ((x >> 8) & 0x00FF));
@@ -125,12 +137,14 @@ MMP = function(module, samplerate) {
 						track.sample_pan = 128; // note->pan;
 						// console.log('track', track);
 					}
+					//if (note.effect)
+					//	console.log('effect on channel '+ch+':', note.effect, note.effect_data);
 					switch (note.effect) {
 					case 0xA: {
-						if ((note.effect_data & 0x0F) != 0)
-							track.sample_volume += note.effect_data >> 4;
+						if ((note.effect_data & 0xF0) != 0)
+							track.sample_volume += 8 * (note.effect_data >> 4);
 						else
-							track.sample_volume -= note.effect_data & 15;
+							track.sample_volume -= 8 * (note.effect_data & 15);
 						if (track.sample_volume < 0)
 							track.sample_volume = 0;
 						break;
@@ -155,6 +169,9 @@ MMP = function(module, samplerate) {
 						track.sample_position = note.effect_data * 256 * 1024;
 						break;
 					}
+
+
+					mmp_module.channelVU[ch] = track.sample_volume;
 				}
 				// avancera nerŒt.
 				mmp_module.iRow++;
@@ -174,6 +191,8 @@ MMP = function(module, samplerate) {
 				var track = mmp_module.pTrack[ch];
 				var ch4 = ch % 4;
 				if (track.sample_index < 0)
+					continue;
+				if (mmp_module.channelMuted[ch])
 					continue;
 				var sample = mmp_module.pSample[track.sample_index];
 				var sp10 = track.sample_position >> 10;
@@ -223,148 +242,156 @@ MMP = function(module, samplerate) {
 					// we went past end of sample ... STOP.
 					track.sample_index = -1;
 				}
+
+				if (mmp_module.channelVU[ch] > 0)
+					mmp_module.channelVU[ch] -= 200 / 44100;
 			}
 		}
 		return output;
 	}
-	mmp_module.iPosition = 0;
-	mmp_module.iRow = 0;
-	mmp_module.iSubTick = 1;
-	mmp_module.nRowSamples = 65536;
 
-	var bb = new ByteBuffer(module);
 
-	var mh = {
-		songName : '',
-		instruments : [],
-		songLength : 0,
-		restart : 0,
-		songData : [],
-		sign : ''
-	};
 
-	mh.songName = bb.readString(20);
+	function mmp_load(module) {
+		var bb = new ByteBuffer(module);
 
-	for ( var k = 0; k < 31; k++) {
-		var ins = {
-			iname : '',
-			slength : 0,
-			finetune : 0,
-			volume : 0,
-			loopStart : 0,
-			loopLength : 0
+		var mh = {
+			songName : '',
+			instruments : [],
+			songLength : 0,
+			restart : 0,
+			songData : [],
+			sign : ''
 		};
-		ins.iname = bb.readString(22);
-		ins.slength = SWAP16(bb.readShort());
-		ins.finetune = bb.readByte();
-		ins.volume = bb.readByte();
-		ins.loopStart = SWAP16(bb.readShort());
-		ins.loopLength = SWAP16(bb.readShort());
-		// console.log("loaded instrument:", ins);
-		mh.instruments.push(ins);
-	}
 
-	mh.songLength = bb.readByte();
-	mh.restart = bb.readByte();
-	for ( var k = 0; k < 128; k++)
-		mh.songData[k] = bb.readByte();
-	mh.sign = bb.readString(4);
+		mh.songName = bb.readString(20);
+		mmp_module.songName = mh.songName;
 
-	// console.log('songname:', mh.songName);
-	// console.log('sign:', mh.sign);
-
-	switch (mh.sign) {
-	case 'M.K.':
-	case 'M!K!':
-	case 'FLT4!':
-		mmp_module.nTracks = 4;
-		break;
-	case 'OCTA':
-		mmp_module.nTracks = 8;
-		break;
-	// case 'CHN1':
-	// mmp_module.nTracks = 1;
-	// break;
-	// if (mmp_memcmp(mh.sign + 1, "CHN", 3) == 0)
-	// mmp_module.nTracks = mh.sign[0] - '0';
-	// if (mmp_memcmp(mh.sign + 2, "CH", 2) == 0)
-	// mmp_module.nTracks = (mh.sign[0] - '0') * 10 + (mh.sign[1] - '0');
-	}
-
-	// console.log('tracks:', mmp_module.nTracks);
-	for ( var i = 0; i < mmp_module.nTracks; i++) {
-		var t = {
-			sample_index : -1,
-			sample_position : 0,
-			sample_delta : 0,
-			sample_finaldelta : 0,
-			sample_deltadelta : 0,
-			sample_pan : 0,
-			sample_volume : 0
-		};
-		mmp_module.pTrack.push(t);
-	}
-
-	var lastPat = 0;
-	for ( var i = 0; i < 128; i++)
-		lastPat = Math.max(lastPat, mh.songData[i]);
-
-	mmp_module.nPatterns = lastPat + 1;
-
-	for ( var i = 0; i < mmp_module.nPatterns; i++) {
-		// console.log('converting pattern #' + i);
-		var tbb = bb.readBuffer(256 * mmp_module.nTracks);
-		var pat = mmp_convertpattern(tbb);
-		mmp_module.pPattern.push(pat);
-	}
-
-	mmp_module.iSpeed = 6;
-	mmp_module.iTempo = 125;
-	mmp_calcrowcounter();
-
-	mmp_module.nSamples = 32;
-	for ( var i = 0; i < 31; i++) {
-		var modi = mh.instruments[i];
-		if (modi.slength == 0)
-			continue;
-		var s = {
-			flags : 0,
-			finetune : 0,
-			volume : 0,
-			length : 0,
-			loop_start : 0,
-			loop_end : 0,
-			data : []
-		};
-		s.length = 2 * modi.slength;
-		s.loop_start = 2 * modi.loopStart;
-		s.loop_end = 2 * modi.loopStart + 2 * modi.loopLength;
-		s.flags = 0;
-		if (modi.loopLength > 1 && (modi.loopLength != modi.loopStart))
-			s.flags |= SF_LOOPED;
-		s.volume = modi.volume;
-		s.finetune = 0;
-		// s->panning = 128;
-		var start = bb.position();
-		for ( var j = 0; j < s.length; j++) {
-			var cs = bb.readByte();
-			if (cs > 127)
-				cs = -127 + (cs - 127);
-			// cs = 128 - (cs - 128);
-			cs /= 128.0;
-			// cs -= 16384;
-			// cs = 32768 * (s.length - j) / s.length;
-			// cs *= Math.sin( j / 6.0 );
-			s.data[j] = cs;
+		for ( var k = 0; k < 31; k++) {
+			var ins = {
+				iname : '',
+				slength : 0,
+				finetune : 0,
+				volume : 0,
+				loopStart : 0,
+				loopLength : 0
+			};
+			ins.iname = bb.readString(22);
+			ins.slength = SWAP16(bb.readShort());
+			ins.finetune = bb.readByte();
+			ins.volume = bb.readByte();
+			ins.loopStart = SWAP16(bb.readShort());
+			ins.loopLength = SWAP16(bb.readShort());
+			// console.log("loaded instrument:", ins);
+			mh.instruments.push(ins);
 		}
-		// console.log('parsed sample #' + i + ' from ' + start + ':', s);
-		mmp_module.pSample[i] = s;
+
+		mh.songLength = bb.readByte();
+		mh.restart = bb.readByte();
+		for ( var k = 0; k < 128; k++)
+			mh.songData[k] = bb.readByte();
+		mh.sign = bb.readString(4);
+
+		// console.log('songname:', mh.songName);
+		// console.log('sign:', mh.sign);
+
+		switch (mh.sign) {
+		case 'M.K.':
+		case 'M!K!':
+		case 'FLT4!':
+			mmp_module.nTracks = 4;
+			break;
+		case 'OCTA':
+			mmp_module.nTracks = 8;
+			break;
+		// case 'CHN1':
+		// mmp_module.nTracks = 1;
+		// break;
+		// if (mmp_memcmp(mh.sign + 1, "CHN", 3) == 0)
+		// mmp_module.nTracks = mh.sign[0] - '0';
+		// if (mmp_memcmp(mh.sign + 2, "CH", 2) == 0)
+		// mmp_module.nTracks = (mh.sign[0] - '0') * 10 + (mh.sign[1] - '0');
+		}
+
+		// console.log('tracks:', mmp_module.nTracks);
+		for ( var i = 0; i < mmp_module.nTracks; i++) {
+			var t = {
+				sample_index : -1,
+				sample_position : 0,
+				sample_delta : 0,
+				sample_finaldelta : 0,
+				sample_deltadelta : 0,
+				sample_pan : 0,
+				sample_volume : 0
+			};
+			mmp_module.pTrack.push(t);
+		}
+
+		var lastPat = 0;
+		for ( var i = 0; i < 128; i++)
+			lastPat = Math.max(lastPat, mh.songData[i]);
+
+		mmp_module.nPatterns = lastPat + 1;
+
+		for ( var i = 0; i < mmp_module.nPatterns; i++) {
+			// console.log('converting pattern #' + i);
+			var tbb = bb.readBuffer(256 * mmp_module.nTracks);
+			var pat = mmp_convertpattern(tbb);
+			mmp_module.pPattern.push(pat);
+		}
+
+		mmp_module.iSpeed = 6;
+		mmp_module.iTempo = 125;
+		mmp_calcrowcounter();
+
+		mmp_module.nSamples = 32;
+		for ( var i = 0; i < 31; i++) {
+			var modi = mh.instruments[i];
+			if (modi.slength == 0)
+				continue;
+			var s = {
+				flags : 0,
+				finetune : 0,
+				volume : 0,
+				length : 0,
+				loop_start : 0,
+				loop_end : 0,
+				data : []
+			};
+			s.length = 2 * modi.slength;
+			s.loop_start = 2 * modi.loopStart;
+			s.loop_end = 2 * modi.loopStart + 2 * modi.loopLength;
+			s.flags = 0;
+			if (modi.loopLength > 1 && (modi.loopLength != modi.loopStart))
+				s.flags |= SF_LOOPED;
+			s.volume = modi.volume;
+			s.finetune = 0;
+			// s->panning = 128;
+			var start = bb.position();
+			for ( var j = 0; j < s.length; j++) {
+				var cs = bb.readByte();
+				if (cs > 127)
+					cs = -127 + (cs - 127);
+				// cs = 128 - (cs - 128);
+				cs /= 128.0;
+				// cs -= 16384;
+				// cs = 32768 * (s.length - j) / s.length;
+				// cs *= Math.sin( j / 6.0 );
+				s.data[j] = cs;
+			}
+			// console.log('parsed sample #' + i + ' from ' + start + ':', s);
+			mmp_module.pSample[i] = s;
+		}
+
+		mmp_module.nSongRepeat = mh.restart;
+		mmp_module.nLength = mh.songLength;
+		for ( var i = 0; i < mmp_module.nLength; i++)
+			mmp_module.pOrder[i] = mh.songData[i];
 	}
 
-	mmp_module.nSongRepeat = mh.restart;
-	mmp_module.nLength = mh.songLength;
-	for ( var i = 0; i < mmp_module.nLength; i++)
-		mmp_module.pOrder[i] = mh.songData[i];
+	mmp_reset();
+	if (module)
+		mmp_load(module);
 
 	// console.log('mh data:', mh);
 	// console.log('parsed module:', mmp_module);
@@ -372,6 +399,36 @@ MMP = function(module, samplerate) {
 	return {
 		init : function(len, sr) {
 			mmp_module.nSampleRate = sr;
+		},
+		load: function(data) {
+			mmp_reset();
+			mmp_load(data);
+		},
+		getVU: function(ch) {
+			return Math.round(mmp_module.channelVU[ch]);// Math.random() * 100;
+		},
+		getWaveform: function(ch) {
+			return [];
+		},
+		getMute: function(ch) {
+			return mmp_module.channelMuted[ch];
+		},
+		setMute: function(ch, muted) {
+			console.log('set channel '+ch+' muted to '+muted);
+			mmp_module.channelMuted[ch] = muted;
+		},
+		getSongPosition: function() {
+			return mmp_module.iPosition;
+		},
+		getSongRow: function() {
+			return mmp_module.iRow;
+		},
+		getSongName: function() {
+			return mmp_module.songName;
+		},
+		setSongPosition: function(spos) {
+			mmp_module.iPosition = spos;
+			mmp_module.iRow = 0;
 		},
 		getsamples : function(len) {
 			return mmp_generate(len);
