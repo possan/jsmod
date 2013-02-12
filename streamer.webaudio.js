@@ -26,17 +26,18 @@ WebAudioStreamer.prototype.init = function(samplerate) {
 		var outputl = e.outputBuffer.getChannelData(0);
 		var outputr = e.outputBuffer.getChannelData(1);
 
+		for (var i = 0; i < outputl.length; i++) {
+		    outputl[i] = 0;
+		    outputr[i] = 0;
+		}
+
 		if (self.playing) {
 			buf = self.audioCallback(outputl.length);
-			for (var i = 0; i < outputl.length; i++) {
-			    outputl[i] = buf[i*2+0];
-			    outputr[i] = buf[i*2+1];
-			}
-		} else {
-			for (var i = 0; i < outputl.length; i++) {
-			    outputl[i] = 0;
-			    outputr[i] = 0;
-			}
+			if( buf.length == outputl.length * 2 )
+				for (var i = 0; i < outputl.length; i++) {
+				    outputl[i] = buf[i*2+0];
+				    outputr[i] = buf[i*2+1];
+				}
 		}
 	}
 

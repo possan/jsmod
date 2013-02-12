@@ -109,6 +109,10 @@ var MMP = function(module, samplerate) {
 		// console.log("generating " + samples + " samples");
 		var output = [];
 		for ( var i = 0; i < samples; i++) {
+			output[i*2+0] = 0;
+			output[i*2+1] = 0;
+		}
+		for ( var i = 0; i < samples; i++) {
 			mmp_module.iSubTick--;
 			if (mmp_module.iSubTick < 0) {
 				// console.log("at row #" + mmp_module.iRow);
@@ -218,8 +222,8 @@ var MMP = function(module, samplerate) {
 			if (right > 1)
 				right = 1;
 
-			output.push(left);
-			output.push(right);
+			output[i*2+0] = left;
+			output[i*2+1] = right;
 			// output.push(left / 32767.0);
 			// output.push(right / 32767.0);
 
