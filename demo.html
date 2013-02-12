@@ -1,16 +1,42 @@
 <html>
+
     <script src="miniajax.js" type="application/javascript"></script>
+
     <script src="base64.js" type="application/javascript"></script>
     <script src="bytebuffer.js" type="application/javascript"></script>
+
     <script src="mmp.js" type="application/javascript"></script>
+
+    <script src="streamer.null.js" type="application/javascript"></script>
+    <script src="streamer.webaudio.js" type="application/javascript"></script>
+    <script src="streamer.audiotags.js" type="application/javascript"></script>
     <script src="streamer.js" type="application/javascript"></script>
+
     <script type="application/javascript">
 
         var mmp;
         var demo;
         var streamer;
 
+        function updatebutton() {
+            var b1 = document.getElementById('b1');
+            if (streamer.isPlaying()) {
+                b1.innerHTML = 'Stop';
+            }
+            else {
+                b1.innerHTML = 'Play';
+            }
+        }
+
         function initdemo() {
+
+            streamer = Streamer.create();
+            streamer.init(44100);
+            console.log('streamer', streamer);
+
+            mmp = new MMP();
+            mmp.init(44100);
+            console.log('mmp', mmp);
 
             var ch;
             ch = document.getElementById('channel1');
@@ -52,16 +78,6 @@
                 mmp.setSongPosition(mmp.getSongPosition() - 1);
             });
 
-
-            ch = document.getElementById('mod');
-            ch.addEventListener('change', function(e) {
-                // console.log(e);
-                var fn = (e.target.options[e.target.selectedIndex].value);
-                streamer.stop();
-                updatebutton();
-                loadMod(fn);
-            });
-
             function loadMod(modfile) {
                 ajax.get(modfile, function(modtext) {
                     console.log('b64 len', modtext.length);
@@ -70,23 +86,33 @@
                     for (var k = 0; k < moddata.length; k++)
                         modbytes.push(moddata.charCodeAt(k));
                     console.log("binary len:", modbytes.length);
-                    mmp = new MMP(modbytes);
-                    // demo = sinus_create();
-                    var buffers = [];
-                    buffers.push(document.getElementById('a1'));
-                    buffers.push(document.getElementById('a2'));
-                    buffers.push(document.getElementById('a3'));
-                    // console.log(buffers);
-                    streamer = new Streamer(mmp, buffers, 44100);
+
+                    mmp.load(modbytes);
+
                     updatebutton();
+
+                    streamer.stream(function(samples) {
+                        return mmp.getsamples(samples);
+                    });
 
                     ch = document.getElementById('nam');
                     ch.value = mmp.getSongName();
                 });
             }
 
+            ch = document.getElementById('mod');
+            ch.addEventListener('change', function(e) {
+                // console.log(e);
+                streamer.stop();
+                updatebutton();
+                var fn = (e.target.options[e.target.selectedIndex].value);
+                if (fn != '')
+                    loadMod(fn);
+            });
+
             var modfile = ch.options[ch.selectedIndex].value;
-            loadMod(modfile);
+            if (modfile != '')
+                loadMod(modfile);
 
             setInterval(function() {
                 if (mmp) {
@@ -95,65 +121,72 @@
                     ch.value = ''+mmp.getSongPosition()+'.'+mmp.getSongRow();
 
                     ch = document.getElementById('vu1');
-                    ch.value = ''+mmp.getVU(0);
+                    ch.value = mmp.getVU(0);
 
                     ch = document.getElementById('vu2');
-                    ch.value = ''+mmp.getVU(1);
+                    ch.value = mmp.getVU(1);
 
                     ch = document.getElementById('vu3');
-                    ch.value = ''+mmp.getVU(2);
+                    ch.value = mmp.getVU(2);
 
                     ch = document.getElementById('vu4');
-                    ch.value = ''+mmp.getVU(3);
-
+                    ch.value = mmp.getVU(3);
                 }
             }, 25);
         }
 
-        function updatebutton(){
-            if (streamer.isPlaying()) {
-                b1.innerHTML = 'Stop';
-            }
-            else {
-                b1.innerHTML = 'Play';
-            }
-        }
-
     </script>
     <body onload="initdemo()">
-
-        <select id="mod">
-            <option>- pick module -</option>
-            <option value="desert1.mod.b64">desert1.mod</option>
-            <option value="desert2.mod.b64" selected>desert2.mod</option>
-            <option value="desert3.mod.b64">desert3.mod</option>
-        </select>
-
-        <audio id="a1"></audio>
-        <audio id="a2"></audio>
-        <audio id="a3"></audio>
-
-        <button id="b1">Loading...</button>
-
-        <button id="bck">&lt;&lt;</button>
-        <button id="fwd">&gt;&gt;</button>
-
-        <input type="text" id="pos" size="5" />
-
-        <input type="text" id="nam" size="5" />
-
-        <input type="checkbox" id="channel1" />
-        <input type="text" id="vu1" size="4" />
-
-        <input type="checkbox" id="channel2" />
-        <input type="text" id="vu2" size="4" />
-
-        <input type="checkbox" id="channel3" />
-        <input type="text" id="vu3" size="4" />
-
-        <input type="checkbox" id="channel4" />
-        <input type="text" id="vu4" size="4" />
-
+        <p>
+            <select id="mod">
+                <option value="">- pick module -</option>
+                <option value="elysium.mod.b64">elysium.mod</option>
+                <option value="stardstm.mod.b64">stardstm.mod</option>
+                <option value="desert1.mod.b64">desert1.mod</option>
+                <option value="desert2.mod.b64" selected>desert2.mod</option>
+                <option value="desert3.mod.b64">desert3.mod</option>
+            </select>
+            <button id="b1">Loading...</button>
+            <button id="bck">&lt;&lt;</button>
+            <button id="fwd">&gt;&gt;</button>
+        </p>
+        <p>
+            <input type="text" id="pos" size="5" />
+            <input type="text" id="nam" size="40" />
+        </p>
+        <p>
+            Channel 1:
+            &nbsp;
+            <input type="checkbox" id="channel1" />
+            Mute
+            &nbsp;
+            <progress id="vu1" min="0" max="127" />
+        </p>
+        <p>
+            Channel 2:
+            &nbsp;
+            <input type="checkbox" id="channel2" />
+            Mute
+            &nbsp;
+            <progress id="vu2" min="0" max="127" />
+        </p>
+        <p>
+            Channel 3:
+            &nbsp;
+            <input type="checkbox" id="channel3" />
+            Mute
+            &nbsp;
+            <progress id="vu3" min="0" max="127" />
+        </p>
+        <p>
+            Channel 4:
+            &nbsp;
+            <input type="checkbox" id="channel4" />
+            Mute
+            &nbsp;
+            <progress id="vu4" min="0" max="127" />
+        </p>
+        <p>This simple javascript audiotag (no webaudio yet) .mod player (it's missing some effects) by <a href="http://twitter.com/possan">@possan</a> is <a href="http://github.com/possan/jsmod">available on github</a> - scene music from <a href="http://modarchive.org">the .mod archive</a></p>
 
     </body>
 </html>

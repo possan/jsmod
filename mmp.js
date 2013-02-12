@@ -1,4 +1,4 @@
-MMP = function(module, samplerate) {
+var MMP = function(module, samplerate) {
 
 	var SF_LOOPED = 1;
 
@@ -114,6 +114,8 @@ MMP = function(module, samplerate) {
 				// console.log("at row #" + mmp_module.iRow);
 				var pat = mmp_module.pPattern[mmp_module.pOrder[mmp_module.iPosition]];
 				for ( var ch = 0; ch < mmp_module.nTracks; ch++) {
+					if (mmp_module.channelMuted[ch])
+						continue;
 					var track = mmp_module.pTrack[ch];
 					var note = pat.pNote[(mmp_module.iRow * mmp_module.nTracks + ch)];
 					if (note.sample >= 0 && note.note > 0) {
@@ -170,8 +172,8 @@ MMP = function(module, samplerate) {
 						break;
 					}
 
-
-					mmp_module.channelVU[ch] = track.sample_volume;
+					if (track.sample_volume >= mmp_module.channelVU[ch])
+						mmp_module.channelVU[ch] = track.sample_volume;
 				}
 				// avancera neråt.
 				mmp_module.iRow++;
@@ -186,7 +188,7 @@ MMP = function(module, samplerate) {
 			}
 
 			var left = 0;
-			// var right = 0;
+			var right = 0;
 			for ( var ch = 0; ch < mmp_module.nTracks; ch++) {
 				var track = mmp_module.pTrack[ch];
 				var ch4 = ch % 4;
@@ -203,24 +205,33 @@ MMP = function(module, samplerate) {
 					var v = sample.data[sp10];
 					v *= track.sample_volume;
 					v /= 128;
-					left += v;// * leftamount[ch4];
-					// right += v * rightamount[ch4];
+					left += v * leftamount[ch4];
+					right += v * rightamount[ch4];
 				}
 			}
-			left /= 2.0;
-			// left /= 32768.0;
 			if (left < -1)
 				left = -1;
+			if (right < -1)
+				right = -1;
 			if (left > 1)
 				left = 1;
+			if (right > 1)
+				right = 1;
 
 			output.push(left);
+			output.push(right);
 			// output.push(left / 32767.0);
 			// output.push(right / 32767.0);
 
 			// move the samplepointers... get interpolated sample values.
 			for ( var ch = 0; ch < mmp_module.nTracks; ch++) {
 				var track = mmp_module.pTrack[ch];
+
+				if (mmp_module.channelVU[ch] > 0)
+					mmp_module.channelVU[ch] -= 400 / 44100;
+				else
+					mmp_module.channelVU[ch] = 0;
+
 				if (track.sample_index < 0)
 					continue;
 				var sample = mmp_module.pSample[track.sample_index];
@@ -242,9 +253,6 @@ MMP = function(module, samplerate) {
 					// we went past end of sample ... STOP.
 					track.sample_index = -1;
 				}
-
-				if (mmp_module.channelVU[ch] > 0)
-					mmp_module.channelVU[ch] -= 200 / 44100;
 			}
 		}
 		return output;
@@ -396,42 +404,52 @@ MMP = function(module, samplerate) {
 	// console.log('mh data:', mh);
 	// console.log('parsed module:', mmp_module);
 
-	return {
-		init : function(len, sr) {
+	this.init = function(len, sr) {
 			mmp_module.nSampleRate = sr;
-		},
-		load: function(data) {
+	};
+
+	this.load = function(data) {
 			mmp_reset();
 			mmp_load(data);
-		},
-		getVU: function(ch) {
-			return Math.round(mmp_module.channelVU[ch]);// Math.random() * 100;
-		},
-		getWaveform: function(ch) {
-			return [];
-		},
-		getMute: function(ch) {
-			return mmp_module.channelMuted[ch];
-		},
-		setMute: function(ch, muted) {
-			console.log('set channel '+ch+' muted to '+muted);
-			mmp_module.channelMuted[ch] = muted;
-		},
-		getSongPosition: function() {
-			return mmp_module.iPosition;
-		},
-		getSongRow: function() {
-			return mmp_module.iRow;
-		},
-		getSongName: function() {
-			return mmp_module.songName;
-		},
-		setSongPosition: function(spos) {
-			mmp_module.iPosition = spos;
-			mmp_module.iRow = 0;
-		},
-		getsamples : function(len) {
-			return mmp_generate(len);
-		}
 	};
+
+	this.getVU = function(ch) {
+		return Math.round(mmp_module.channelVU[ch]);// Math.random() * 100;
+	};
+
+	this.getWaveform = function(ch) {
+		return [];
+	};
+
+	this.getMute = function(ch) {
+			return mmp_module.channelMuted[ch];
+	};
+
+	this.setMute = function(ch, muted) {
+		console.log('set channel '+ch+' muted to '+muted);
+		mmp_module.channelMuted[ch] = muted;
+	};
+
+	this.getSongPosition = function() {
+		return mmp_module.iPosition;
+	};
+
+	this.getSongRow = function() {
+		return mmp_module.iRow;
+	};
+
+	this.getSongName = function() {
+		return mmp_module.songName;
+	};
+
+	this.setSongPosition = function(spos) {
+		mmp_module.iPosition = spos;
+		mmp_module.iRow = 0;
+	};
+
+	this.getsamples = function(len) {
+		return mmp_generate(len);
+	};
+
+	return this;
 }
